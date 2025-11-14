@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>M-Pesa Callback</title>
+</head>
+<body>
+    <h1>M-Pesa Callback Handler</h1>
+    <p>This endpoint receives payment confirmations from M-Pesa</p>
+    
+    <script>
+        // Simple JavaScript to handle M-Pesa callback
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentData = urlParams.toString();
+        
+        if (paymentData) {
+            // Log the payment data (you can see this in browser console)
+            console.log('M-Pesa Callback Received:', paymentData);
+            
+            // In a real app, you would send this to your backend
+            // For now, we'll just display it
+            document.body.innerHTML += `<p>Callback received: ${paymentData}</p>`;
+        }
+        
+        // Always return success to M-Pesa
+        fetch('https://your-custom-domain.com/acknowledge', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                "ResultCode": 0,
+                "ResultDesc": "Success"
+            })
+        });
+    </script>
+</body>
+</html>
