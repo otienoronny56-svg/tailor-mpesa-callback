@@ -1,7 +1,7 @@
 {
-  "name": "tailor-mpesa-backend",
+  "name": "tailor-payments-backend",
   "version": "1.0.0",
-  "description": "M-Pesa callback handler for Tailor Master Pro",
+  "description": "M-Pesa callback handler for Tailor Master Pro - Compliant URLs",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
