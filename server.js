@@ -97,7 +97,7 @@ app.post('/confirm', async (req, res) => {
     }
 });
 
-// Function to update Supabase subscription
+// FIXED: Function to update Supabase subscription (handles duplicates)
 async function updateSupabaseSubscription(phoneNumber) {
     try {
         console.log('🔄 Updating Supabase subscription for:', phoneNumber);
@@ -125,27 +125,55 @@ async function updateSupabaseSubscription(phoneNumber) {
         
         console.log('📤 Sending to Supabase:', userData);
         
-        // Upsert user data (insert or update)
-        const response = await fetch(`${supabaseUrl}/rest/v1/users`, {
-            method: 'POST',
+        // FIXED: Use PATCH to update existing user instead of POST
+        // This updates the user if they exist, or creates if they don't
+        const response = await fetch(`${supabaseUrl}/rest/v1/users?phone_number=eq.${phoneNumber}`, {
+            method: 'PATCH',  // CHANGED FROM POST TO PATCH - updates existing records
             headers: {
                 'Content-Type': 'application/json',
                 'apikey': supabaseKey,
                 'Authorization': `Bearer ${supabaseKey}`,
-                'Prefer': 'resolution=merge-duplicates'
+                'Prefer': 'return=minimal'
             },
             body: JSON.stringify(userData)
         });
         
         const responseText = await response.text();
         console.log('📥 Supabase response status:', response.status);
-        console.log('📥 Supabase response:', responseText);
         
         if (response.ok) {
             console.log('✅ Supabase updated successfully for:', phoneNumber);
             return true;
         } else {
             console.log('❌ Supabase update failed. Status:', response.status);
+            console.log('❌ Response:', responseText);
+            
+            // If PATCH fails (user doesn't exist), try POST to create new user
+            if (response.status === 404 || response.status === 409) {
+                console.log('🔄 User not found, trying to create new user...');
+                const createResponse = await fetch(`${supabaseUrl}/rest/v1/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': supabaseKey,
+                        'Authorization': `Bearer ${supabaseKey}`,
+                        'Prefer': 'return=minimal'
+                    },
+                    body: JSON.stringify(userData)
+                });
+                
+                const createResponseText = await createResponse.text();
+                console.log('📥 Create user response status:', createResponse.status);
+                
+                if (createResponse.ok) {
+                    console.log('✅ New user created successfully for:', phoneNumber);
+                    return true;
+                } else {
+                    console.log('❌ Failed to create new user:', createResponseText);
+                    return false;
+                }
+            }
+            
             return false;
         }
         
@@ -178,14 +206,27 @@ app.get('/test-update/:phone', async (req, res) => {
     const phone = req.params.phone;
     console.log('🧪 Manual test update for:', phone);
     
-    const success = await updateSupabaseSubscription(phone);
-    
-    res.json({
-        phone: phone,
-        updateSuccess: success,
-        timestamp: new Date().toISOString(),
-        message: success ? 'Subscription activated successfully' : 'Failed to activate subscription'
-    });
+    try {
+        const success = await updateSupabaseSubscription(phone);
+        
+        res.json({
+            phone: phone,
+            updateSuccess: success,
+            timestamp: new Date().toISOString(),
+            message: success ? 'Subscription activated successfully' : 'Failed to activate subscription',
+            backendStatus: 'Active and responsive'
+        });
+    } catch (error) {
+        console.error('❌ Test endpoint error:', error);
+        res.json({
+            phone: phone,
+            updateSuccess: false,
+            timestamp: new Date().toISOString(),
+            message: 'Backend error occurred',
+            backendStatus: 'Error',
+            error: error.message
+        });
+    }
 });
 
 // Root endpoint
@@ -199,7 +240,8 @@ app.get('/', (req, res) => {
             confirmation: 'POST /confirm',
             test: 'GET /test'
         },
-        compliance: '✅ URL meets Safaricom requirements (no M-Pesa keywords)'
+        compliance: '✅ URL meets Safaricom requirements (no M-Pesa keywords)',
+        monitoring: '✅ UptimeRobot active - backend stays awake 24/7'
     });
 });
 
@@ -211,4 +253,5 @@ app.listen(PORT, () => {
     console.log(`📍 Confirmation URL: https://tailor-payments-backend.onrender.com/confirm`);
     console.log(`📍 Test URL: https://tailor-payments-backend.onrender.com/test`);
     console.log(`🔒 Compliance: URLs are clean (no M-Pesa keywords)`);
+    console.log(`👀 Monitoring: UptimeRobot active - backend stays awake`);
 });
