@@ -15,51 +15,81 @@ app.use((req, res, next) => {
 
 // ✅ CLEAN: Validation URL - M-Pesa asks "Should we accept this payment?"
 app.post('/validate', (req, res) => {
-    console.log('🔍 Validation Request:', JSON.stringify(req.body, null, 2));
+    console.log('🔍 Validation Request Received:', JSON.stringify(req.body, null, 2));
+    
+    // Extract payment details
+    const transactionData = req.body;
+    const phoneNumber = transactionData.MSISDN;
+    const amount = transactionData.TransAmount;
+    const accountNumber = transactionData.BillRefNumber;
+    
+    console.log(`📞 Validating payment - Phone: ${phoneNumber}, Amount: ${amount}, Account: ${accountNumber}`);
     
     // Always accept payments for subscription payments
-    res.json({
+    // In future, you can add validation logic here (check if amount is correct, etc.)
+    const validationResponse = {
         "ResultCode": "0",
         "ResultDesc": "Accepted"
-    });
+    };
+    
+    console.log('✅ Validation Response:', validationResponse);
+    res.json(validationResponse);
 });
 
 // ✅ CLEAN: Confirmation URL - M-Pesa says "Payment completed!" 
 app.post('/confirm', async (req, res) => {
-    console.log('💰 Payment Confirmation:', JSON.stringify(req.body, null, 2));
+    console.log('💰 Payment Confirmation Received:', JSON.stringify(req.body, null, 2));
     
-    const callbackData = req.body;
+    const transactionData = req.body;
     
     try {
-        if (callbackData.TransID && callbackData.TransAmount) {
-            console.log('✅ Payment Successful!');
+        // Extract transaction details
+        const transactionId = transactionData.TransID;
+        const phoneNumber = transactionData.MSISDN;
+        const amount = transactionData.TransAmount;
+        const transactionTime = transactionData.TransTime;
+        const businessShortCode = transactionData.BusinessShortCode;
+        
+        console.log(`🎯 Processing payment - ID: ${transactionId}, Phone: ${phoneNumber}, Amount: ${amount}`);
+        
+        if (transactionId && phoneNumber && amount) {
+            console.log('✅ Payment Successful! Processing subscription...');
             
-            const phoneNumber = callbackData.MSISDN;
-            const amount = callbackData.TransAmount;
+            // Update Supabase with new subscription
+            const updateSuccess = await updateSupabaseSubscription(phoneNumber);
             
-            console.log(`📞 Phone: ${phoneNumber}, 💰 Amount: ${amount}`);
-            
-            if (phoneNumber) {
-                const updateSuccess = await updateSupabaseSubscription(phoneNumber);
-                
-                if (updateSuccess) {
-                    console.log('✅ Supabase subscription updated successfully!');
-                } else {
-                    console.log('❌ Failed to update Supabase');
-                }
+            if (updateSuccess) {
+                console.log('✅ Supabase subscription updated successfully!');
+            } else {
+                console.log('❌ Failed to update Supabase subscription');
             }
+            
+            // Log successful transaction
+            console.log(`📝 Transaction Complete:
+            - Transaction ID: ${transactionId}
+            - Phone: ${phoneNumber} 
+            - Amount: KSH ${amount}
+            - Time: ${transactionTime}
+            - ShortCode: ${businessShortCode}
+            `);
+            
         } else {
-            console.log('❌ Payment Failed or incomplete data');
+            console.log('❌ Invalid payment data received');
         }
         
         // Always acknowledge receipt to M-Pesa
-        res.json({
+        const confirmationResponse = {
             "ResultCode": "0",
             "ResultDesc": "Success"
-        });
+        };
+        
+        console.log('📤 Sending confirmation response to M-Pesa');
+        res.json(confirmationResponse);
         
     } catch (error) {
-        console.error('❌ Error processing confirmation:', error);
+        console.error('❌ Error processing payment confirmation:', error);
+        
+        // Still acknowledge receipt to M-Pesa even if we have errors
         res.json({
             "ResultCode": "0", 
             "ResultDesc": "Success"
@@ -67,28 +97,24 @@ app.post('/confirm', async (req, res) => {
     }
 });
 
-// KEEP existing route for testing (but Safaricom won't use this)
-app.post('/mpesa-callback', async (req, res) => {
-    console.log('📞 Legacy callback received (for testing)');
-    // ... keep your existing logic here for testing
-    res.json({ ResultCode: 0, ResultDesc: "Success" });
-});
-
-// KEEP all your existing functions (updateSupabaseSubscription, etc.)
+// Function to update Supabase subscription
 async function updateSupabaseSubscription(phoneNumber) {
-    // ... keep your existing updateSupabaseSubscription function exactly as is
     try {
-        console.log('🔄 Updating Supabase for:', phoneNumber);
+        console.log('🔄 Updating Supabase subscription for:', phoneNumber);
         
+        // Your Supabase credentials
         const supabaseUrl = 'https://hqwcqngpoecyahnudpse.supabase.co';
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhxd2Nxbmdwb2VjeWFobnVkcHNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI3OTA0MzIsImV4cCI6MjA3ODM2NjQzMn0.A2aH6kANWuMvXQb6uD0yMB-W9EG1C89NU3VTp4BVMhI';
         
+        // Calculate expiry date (30 days from now)
         const expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + 30);
         const formattedDate = expiryDate.toISOString().split('.')[0] + 'Z';
         
+        // Generate device ID for backend
         const deviceId = 'backend_' + Date.now();
         
+        // User data for Supabase
         const userData = {
             phone_number: phoneNumber,
             subscription_status: 'active',
@@ -99,6 +125,7 @@ async function updateSupabaseSubscription(phoneNumber) {
         
         console.log('📤 Sending to Supabase:', userData);
         
+        // Upsert user data (insert or update)
         const response = await fetch(`${supabaseUrl}/rest/v1/users`, {
             method: 'POST',
             headers: {
@@ -112,6 +139,7 @@ async function updateSupabaseSubscription(phoneNumber) {
         
         const responseText = await response.text();
         console.log('📥 Supabase response status:', response.status);
+        console.log('📥 Supabase response:', responseText);
         
         if (response.ok) {
             console.log('✅ Supabase updated successfully for:', phoneNumber);
@@ -127,20 +155,25 @@ async function updateSupabaseSubscription(phoneNumber) {
     }
 }
 
-// KEEP your test endpoints
+// ==================== TEST ENDPOINTS ====================
+
+// Health check endpoint
 app.get('/test', (req, res) => {
     res.json({ 
-        message: 'M-Pesa Backend is working!',
+        message: 'Tailor Payments Backend is working!',
         timestamp: new Date().toISOString(),
         status: 'OK',
         endpoints: {
-            validate: '/validate',
-            confirm: '/confirm',
-            test: '/test'
-        }
+            validate: 'POST /validate',
+            confirm: 'POST /confirm',
+            test: 'GET /test',
+            testUpdate: 'GET /test-update/:phone'
+        },
+        instructions: 'Use /validate and /confirm for M-Pesa C2B registration'
     });
 });
 
+// Manual test endpoint to trigger Supabase update
 app.get('/test-update/:phone', async (req, res) => {
     const phone = req.params.phone;
     console.log('🧪 Manual test update for:', phone);
@@ -150,14 +183,32 @@ app.get('/test-update/:phone', async (req, res) => {
     res.json({
         phone: phone,
         updateSuccess: success,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        message: success ? 'Subscription activated successfully' : 'Failed to activate subscription'
+    });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({
+        service: 'Tailor Master Pro Payments Backend',
+        version: '1.0.0',
+        status: 'Running',
+        endpoints: {
+            validation: 'POST /validate',
+            confirmation: 'POST /confirm',
+            test: 'GET /test'
+        },
+        compliance: '✅ URL meets Safaricom requirements (no M-Pesa keywords)'
     });
 });
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`🚀 M-Pesa Backend running on port ${PORT}`);
-    console.log(`✅ Clean endpoints ready for Safaricom:`);
-    console.log(`   📍 Validation: https://tailor-mpesa-backend.onrender.com/validate`);
-    console.log(`   📍 Confirmation: https://tailor-mpesa-backend.onrender.com/confirm`);
+    console.log(`🚀 Tailor Payments Backend running on port ${PORT}`);
+    console.log(`✅ Ready for Safaricom C2B Registration!`);
+    console.log(`📍 Validation URL: https://tailor-payments-backend.onrender.com/validate`);
+    console.log(`📍 Confirmation URL: https://tailor-payments-backend.onrender.com/confirm`);
+    console.log(`📍 Test URL: https://tailor-payments-backend.onrender.com/test`);
+    console.log(`🔒 Compliance: URLs are clean (no M-Pesa keywords)`);
 });
